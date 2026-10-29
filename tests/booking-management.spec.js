@@ -219,3 +219,70 @@ test.describe('Booking Management — Critical Happy Paths', () => {
   });
 
 });
+
+test.describe('Booking Management — Cancel Dialog UI State', () => {
+
+  // TC-503 ───────────────────────────────────────────────────────────────────
+  test('TC-503: shows cancel confirmation dialog with booking ref and seat count', async ({ page }) => {
+    // -- Step 1: Login, clear state, create one booking --
+    await login(page);
+    await clearBookings(page);
+    const { bookingRef } = await bookEvent(page);
+
+    // -- Step 2: Navigate to booking detail via View Details --
+    await page.goto(`${BASE_URL}/bookings`);
+    const card = page.getByTestId('booking-card').filter({ hasText: bookingRef });
+    await card.getByRole('link', { name: 'View Details' }).click();
+    await expect(page).toHaveURL(/\/bookings\/\d+/);
+
+    // -- Step 3: Click Cancel Booking button on detail page --
+    await page.getByRole('button', { name: 'Cancel Booking' }).click();
+
+    // -- Step 4: Assert dialog is open with title, ref, seat count and both actions --
+    const dialog = page.getByRole('dialog', { name: 'Cancel this booking?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Cancelling ${bookingRef} will release 1 seat(s) back to the event`);
+    await expect(dialog.getByTestId('confirm-dialog-yes')).toHaveText('Yes, cancel it');
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  });
+
+  // TC-504 ───────────────────────────────────────────────────────────────────
+  test('TC-504: dismissing cancel dialog keeps the booking and sends no DELETE request', async ({ page }) => {
+    // -- Step 1: Login, clear state, create one booking --
+    await login(page);
+    await clearBookings(page);
+    const { bookingRef } = await bookEvent(page);
+
+    // -- Step 2: Navigate to booking detail via View Details --
+    await page.goto(`${BASE_URL}/bookings`);
+    const card = page.getByTestId('booking-card').filter({ hasText: bookingRef });
+    await card.getByRole('link', { name: 'View Details' }).click();
+    await expect(page).toHaveURL(/\/bookings\/\d+/);
+
+    // -- Step 3: Start recording any DELETE calls to the bookings API --
+    const deleteRequests = [];
+    page.on('request', (request) => {
+      if (request.method() === 'DELETE' && request.url().includes('/api/bookings')) {
+        deleteRequests.push(request.url());
+      }
+    });
+
+    // -- Step 4: Open the dialog, then dismiss it with the Cancel button --
+    await page.getByRole('button', { name: 'Cancel Booking' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Cancel this booking?' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    // -- Step 5: Assert dialog closed and user stays on the detail page --
+    await expect(dialog).not.toBeVisible();
+    await expect(page).toHaveURL(/\/bookings\/\d+/);
+    await expect(page.getByRole('button', { name: 'Cancel Booking' })).toBeVisible();
+
+    // -- Step 6: Assert booking still listed as confirmed and no DELETE was sent --
+    await page.goto(`${BASE_URL}/bookings`);
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('confirmed');
+    expect(deleteRequests).toHaveLength(0);
+  });
+
+});
